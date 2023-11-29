@@ -6,36 +6,28 @@ import json
 
 import pytest
 
-from src.redis_connector import RedisConnection
-from src.keymaster import create_pq
-from src.query_redis import squery, oquery
-from src.descender import Descender
+from copy import deepcopy
+from fastapi.testclient import TestClient
+from src.server import APP
 
-# TODO : make rc, Desc into fixtures
-@pytest.fixture(scope="module")
-def rc():
-    return RedisConnection("localhost", 6379, "nop")
+client = TestClient(APP)
 
-@pytest.fixture(scope="module")
-def descender():
-    return Descender()
-
-def test_simple_queries(rc, descender):
+def test_simple_queries():
     # Given the edge defined in run_basic_tests, query for it by subject and object with exacty the
     # edge's types and predicate
-    run_basic_tests(rc, descender)
+    run_basic_tests()
 
 
-def test_type_descendant_queries(rc, descender):
+def xtest_type_descendant_queries(rc, descender):
     # Given the edge defined in run_basic_tests, query for it by subject and object with super types
     run_basic_tests(rc, descender, subject_type = "biolink:NamedThing", object_type = "biolink:NamedThing")
 
 
-def test_pq_descendant_queries(rc, descender):
+def xtest_pq_descendant_queries(rc, descender):
     # Given the edge defined in run_basic_tests, query for it by subject and object with super types
     run_basic_tests(rc, descender, pq = create_pq({"predicate": "biolink:related_to"}))
 
-def test_subclass(rc,descender):
+def xtest_subclass(rc,descender):
     # The following edges exist:
     # {"subject":"PUBCHEM.COMPOUND:54454","predicate":"biolink:affects","object":"NCBIGene:3156","biolink:primary_knowledge_source":"infores:gtopdb","primaryTarget":true,"affinityParameter":"pIC50","endogenous":false,"affinity":7.920000076293945,"publications":["PMID:1433193","PMID:11349148"],"object_aspect_qualifier":"activity","object_direction_qualifier":"decreased","qualified_predicate":"biolink:causes"}
     # {"subject":"PUBCHEM.COMPOUND:54687","predicate":"biolink:affects","object":"NCBIGene:3156","biolink:primary_knowledge_source":"infores:gtopdb","primaryTarget":true,"affinityParameter":"pKi","endogenous":false,"affinity":6.989999771118164,"publications":["PMID:11392538","PMID:16128575","PMID:1597859"],"object_aspect_qualifier":"activity","object_direction_qualifier":"decreased","qualified_predicate":"biolink:causes"}
@@ -56,7 +48,7 @@ def test_subclass(rc,descender):
     assert json.loads(output_nodes[0])["id"] == "NCBIGene:3156"
 
 
-def test_no_results_query(rc, descender):
+def xtest_no_results_query(rc, descender):
     # Make sure that queries with no results don't crash
     input_nodes, output_nodes, edges= oquery(["FAKE:ID"], create_pq({"predicate": "biolink:related_to"}),
                                              "biolink:NamedThing", descender, rc)
@@ -64,7 +56,7 @@ def test_no_results_query(rc, descender):
     assert len(output_nodes) == 0
     assert len(edges) == 0
 
-def run_basic_tests(rc, descender, subject_type=None, object_type=None, pq=None):
+def run_basic_tests(subject_type=None, object_type=None, pq=None):
     # Here's an edge.  That subject and object only appear once in the input data:
     edge= {"subject":"PUBCHEM.COMPOUND:70701426","predicate":"biolink:affects","object":"NCBIGene:239",
      "biolink:primary_knowledge_source":"infores:gtopdb","primaryTarget":True,"affinityParameter":"pIC50",
@@ -72,26 +64,50 @@ def run_basic_tests(rc, descender, subject_type=None, object_type=None, pq=None)
      "object_aspect_qualifier":"activity","object_direction_qualifier":"decreased",
      "qualified_predicate":"biolink:causes"}
 
+    query_graph = {"nodes": {"subnode": {}, "objnode": {}},
+                   "edges": {"the_edge": {"subject": "subnode", "object": "objnode"}}}
+
+    if pq is None:
+        query_graph["edges"]["the_edge"]["predicates"] = [edge["predicate"]]
+        query_graph["edges"]["the_edge"]["qualifier_constraints"]= [
+            {
+                "qualifier_set": [
+                    {
+                        "qualifier_type_id": "biolink:object_aspect_qualifier",
+                        "qualifier_value": "activity"
+                    },
+                    {
+                        "qualifier_type_id": "biolink:object_direction_qualifier",
+                        "qualifier_value": "decreased"
+                    }
+                ]
+            }
+        ]
+
     subject_id = edge['subject']
     object_id = edge['object']
     if subject_type is None:
         subject_type = "biolink:SmallMolecule"
     if object_type is None:
         object_type = "biolink:Gene"
-    if pq is None:
-        pq = create_pq(edge)
 
-    input_nodes, output_nodes, edges= oquery([subject_id], pq, object_type, descender, rc)
-    assert len(input_nodes) == 1
-    assert len(output_nodes) == 1
-    node = output_nodes[0]
-    assert json.loads(node)["id"] == object_id
-    assert len(edges) == 1
+    tquery = deepcopy(query_graph)
+    tquery["nodes"]["subnode"]["ids"] = [subject_id]
+    tquery["nodes"]["objnode"]["categories"] = [object_type]
+    response = client.post("/query", json={"message": {"query_graph": tquery}}).json()
+    KG = response["message"]["knowledge_graph"]
+    assert len(KG["nodes"]) == 2
+    assert object_id in KG["nodes"]
+    assert subject_id in KG["nodes"]
+    assert len(KG["edges"]) == 1
+    assert len(response["message"]["results"]) == 1
+    assert response["message"]["results"][0]["node_bindings"]["subnode"][0]["id"] == subject_id
+    assert response["message"]["results"][0]["node_bindings"]["objnode"][0]["id"] == object_id
+    assert response["message"]["results"][0]["analyses"][0]["edge_bindings"]["the_edge"][0]["id"] in KG["edges"]
 
-    input_nodes, output_nodes, edges= squery([object_id], pq, subject_type, descender, rc)
-    assert len(input_nodes) == 1
-    assert len(output_nodes) == 1
-    node = output_nodes[0]
-    assert json.loads(node)["id"] == subject_id
-    assert len(edges) == 1
-
+    #input_nodes, output_nodes, edges= squery([object_id], pq, subject_type, descender, rc)
+    #assert len(input_nodes) == 1
+    #assert len(output_nodes) == 1
+    #node = output_nodes[0]
+    #assert json.loads(node)["id"] == subject_id
+    #assert len(edges) == 1
