@@ -1,0 +1,6 @@
+httpx
+redis
+fastapi
+bmt
+reasoner_pydantic
+uvicorn
