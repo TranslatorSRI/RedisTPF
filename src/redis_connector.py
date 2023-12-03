@@ -35,3 +35,15 @@ class RedisConnection:
             return {k:int(v) for k,v in zip(keys, values) if v is not None}
         else:
             return {k:v for k,v in zip(keys, values) if v is not None}
+
+    def get_int_node_ids(self, input_curies):
+        # Given a list of curies, return a list of integer node ids, including subclasses of the curies
+        # First, get the integer ids for the input curies
+        input_int_ids = list(self.pipeline_gets(0, input_curies, True).values())
+        # Now, extend the input_int_ids with the subclass ids
+        for iid in input_int_ids:
+            self.p[6].lrange(iid, 0, -1)
+        results = self.p[6].execute()
+        subclass_int_ids = [int(item) for sublist in results for item in sublist]
+        input_int_ids.extend(subclass_int_ids)
+        return input_int_ids
