@@ -18,6 +18,37 @@ def test_simple_queries():
     run_basic_tests()
 
 
+def test_profile_asthma():
+    # This query assumes that robokop-KG is loaded into redis.
+    query_graph = {
+      "message": {
+        "query_graph": {
+          "nodes": {
+            "subnode": {
+              "ids": [
+                "MONDO:0004979"
+              ]
+            },
+            "objnode": {
+              "categories": [
+                "biolink:NamedThing"
+              ]
+            }
+          },
+          "edges": {
+            "the_edge": {
+              "subject": "subnode",
+              "object": "objnode",
+              "predicates": [
+                "biolink:related_to"
+              ]
+            }
+          }
+        }
+      }
+    }
+    response = client.post("/query", json={"message": {"query_graph": query_graph}}).json()
+
 def xtest_type_descendant_queries(rc, descender):
     # Given the edge defined in run_basic_tests, query for it by subject and object with super types
     run_basic_tests(rc, descender, subject_type = "biolink:NamedThing", object_type = "biolink:NamedThing")

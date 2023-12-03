@@ -8,7 +8,7 @@ import pytest
 
 from src.redis_connector import RedisConnection
 from src.keymaster import create_pq
-from src.query_redis import squery, oquery
+from src.query_redis import squery, oquery, bquery
 from src.descender import Descender
 
 # TODO : make rc, Desc into fixtures
@@ -54,6 +54,27 @@ def test_subclass(rc,descender):
     assert "PUBCHEM.COMPOUND:54454" in returned_nodes
     assert "PUBCHEM.COMPOUND:54687" in returned_nodes
     assert json.loads(output_nodes[0])["id"] == "NCBIGene:3156"
+
+def test_double_pinned(rc,descender):
+    # The following edges exist:
+
+    # {"subject":"PUBCHEM.COMPOUND:60795","predicate":"biolink:affects","object":"NCBIGene:3356",
+    # "biolink:primary_knowledge_source":"infores:gtopdb","primaryTarget":false,"affinityParameter":"pKi","
+    # endogenous":false,"publications":["PMID:12784105","PMID:12629531"],"object_aspect_qualifier":"activity",
+    # "object_direction_qualifier":"increased","qualified_predicate":"biolink:causes"}
+
+    # {"subject":"PUBCHEM.COMPOUND:60795","predicate":"biolink:affects","object":"NCBIGene:3358",
+    # "biolink:primary_knowledge_source":"infores:gtopdb","primaryTarget":false,"affinityParameter":"pKi",
+    # "endogenous":false,"affinity":7.599999904632568,"publications":["PMID:12629531"],
+    # "object_aspect_qualifier":"activity","object_direction_qualifier":"increased",
+    # "qualified_predicate":"biolink:causes"}
+
+    subject_nodes, object_nodes, edges = bquery(["PUBCHEM.COMPOUND:60795"],
+                                              create_pq({"predicate": "biolink:affects"}),
+                                              ["NCBIGene:3356", "NCBIGene:3358"], descender, rc)
+    assert len(subject_nodes) == 1
+    assert len(object_nodes) == 2
+    assert len(edges) == 2
 
 
 def test_no_results_query(rc, descender):

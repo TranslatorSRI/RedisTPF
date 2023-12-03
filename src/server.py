@@ -4,7 +4,7 @@ from reasoner_pydantic import Response as PDResponse, Result as PDResult, Analys
 from src.redis_connector import RedisConnection
 from src.descender import Descender
 from src.keymaster import create_trapi_pq
-from src.query_redis import squery, oquery
+from src.query_redis import squery, oquery, bquery
 
 import json
 
@@ -55,7 +55,14 @@ async def query_handler(request: PDResponse):
     q_pred = list(query_graph['edges'].values())[0]["predicates"][0]
 
     # Do the query
-    if "ids" in subject_node:
+    if "ids" in subject_node and "ids" in object_node:
+        subject_curies = subject_node["ids"]
+        object_curies = object_node["ids"]
+        input_nodes, output_nodes, edges = bquery(subject_curies, pq, object_curies, descender, rc)
+        # TODO: this is an opportunity for speedup because there is some duplicated work here.
+        if descender.is_symmetric(q_pred):
+            output_nodes_r, input_nodes_r, edges_r = bquery(object_curies, pq, subject_curies, descender, rc)
+    elif "ids" in subject_node:
         subject_curies = subject_node["ids"]
         input_nodes, output_nodes, edges = oquery(subject_curies, pq, object_node["categories"][0], descender, rc)
         if descender.is_symmetric(q_pred):
