@@ -4,13 +4,13 @@ class RedisConnection:
     # it is a context manager and can be used in a with statement
     def __init__(self,host,port,password):
         self.r = []
-        self.r.append(redis.StrictRedis(host=host, port=port, db=0))  # , password=password)
-        self.r.append(redis.StrictRedis(host=host, port=port, db=1))  # , password=password)
-        self.r.append(redis.StrictRedis(host=host, port=port, db=2))  # , password=password)
-        self.r.append(redis.StrictRedis(host=host, port=port, db=3))  # , password=password)
-        self.r.append(redis.StrictRedis(host=host, port=port, db=4))  # , password=password)
-        self.r.append(redis.StrictRedis(host=host, port=port, db=5))  # , password=password)
-        self.r.append(redis.StrictRedis(host=host, port=port, db=6))  # , password=password)
+        self.r.append(redis.StrictRedis(host=host, port=port, db=0, password=password))
+        self.r.append(redis.StrictRedis(host=host, port=port, db=1, password=password))
+        self.r.append(redis.StrictRedis(host=host, port=port, db=2, password=password))
+        self.r.append(redis.StrictRedis(host=host, port=port, db=3, password=password))
+        self.r.append(redis.StrictRedis(host=host, port=port, db=4, password=password))
+        self.r.append(redis.StrictRedis(host=host, port=port, db=5, password=password))
+        self.r.append(redis.StrictRedis(host=host, port=port, db=6, password=password))
         self.p = [ rc.pipeline() for rc in self.r ]
     def __enter__(self):
         return self

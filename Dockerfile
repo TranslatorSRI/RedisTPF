@@ -1,6 +1,9 @@
 from ghcr.io/translatorsri/renci-python-image:3.11.5
 
 
+RUN mkdir /home/nru
+
+RUN chown nru /home/nru
 
 # make a directory for the repo
 RUN mkdir /repo
@@ -14,7 +17,9 @@ USER nru
 
 COPY . redis-tpf
 
+
 WORKDIR redis-tpf
+ENV PYTHONPATH=/repo/redis-tpf
 
 RUN pip install -r requirements.txt
 
