@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+import os
 from fastapi.middleware.cors import CORSMiddleware
 from reasoner_pydantic import Response as PDResponse, Result as PDResult, Analysis as PDAnalysis, KnowledgeGraph as PDKG
 from src.redis_connector import RedisConnection
@@ -24,7 +25,14 @@ APP.add_middleware(
 )
 
 descender = Descender()
-rc = RedisConnection("localhost", 6379, "nop")
+REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
+REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD")
+rc = RedisConnection(
+    REDIS_HOST,
+    REDIS_PORT,
+    REDIS_PASSWORD 
+    )
 
 
 @APP.post("/query", tags=["Query"], response_model=PDResponse, response_model_exclude_none=True, status_code=200)
