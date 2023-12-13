@@ -38,7 +38,7 @@ rc = RedisConnection(
 @APP.post("/query", tags=["Query"], response_model=PDResponse, response_model_exclude_none=True, status_code=200)
 async def query_handler(request: PDResponse):
     """ Query operations. """
-    dict_request = request.to_dict()
+    dict_request = request.dict(exclude_unset=True, exclude_none=True)
     # Check the query graph for basic validity
     query_graph = dict_request['message']['query_graph']
     if len(query_graph['edges']) != 1:
@@ -91,9 +91,6 @@ async def query_handler(request: PDResponse):
         # edges.extend(edges_r)
 
     # Create edge identifiers
-    for eid, edge in enumerate(edges):
-        print(type(json.loads(edge)))
-        print(edge)
     edge_id_to_edge = { f"knowledge_edge_{i}":json.loads(edge) for i, edge in enumerate(edges)}
     # These edges are the ones that are going the same direction as the query
     forward_edge_ids = set(edge_id_to_edge.keys())

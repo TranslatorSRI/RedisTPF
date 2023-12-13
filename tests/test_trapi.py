@@ -49,6 +49,38 @@ def test_profile_asthma():
     }
     response = client.post("/query", json={"message": {"query_graph": query_graph}}).json()
 
+def test_500():
+    # This is giving a 500, seems like it's getting into the double ended query by mistake.
+    m = {
+      "message": {
+        "query_graph": {
+          "nodes": {
+            "chemical": {
+              "categories": ["biolink:ChemicalEntity"],
+              "is_set": False,
+              "constraints": []
+            },
+            "f": {
+              "ids": ["MONDO:0005737"],
+              "is_set": False,
+              "constraints": []
+            }
+          },
+          "edges": {
+            "edge_1": {
+              "subject": "chemical",
+              "object": "f",
+              "predicates": ["biolink:treats"],
+              "attribute_constraints": [],
+              "qualifier_constraints": []
+            }
+          }
+        }
+      }
+    }
+    response = client.post("/query", json=m)
+    assert response.status_code == 200
+
 def xtest_type_descendant_queries(rc, descender):
     # Given the edge defined in run_basic_tests, query for it by subject and object with super types
     run_basic_tests(rc, descender, subject_type = "biolink:NamedThing", object_type = "biolink:NamedThing")
