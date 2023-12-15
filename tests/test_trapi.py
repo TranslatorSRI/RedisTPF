@@ -47,7 +47,9 @@ def test_profile_asthma():
         }
       }
     }
-    response = client.post("/query", json={"message": {"query_graph": query_graph}}).json()
+
+    response = client.post("/query", json= query_graph).json()
+    print("How many results?",len(response["message"]["results"]))
 
 def test_500():
     # This is giving a 500, seems like it's getting into the double ended query by mistake.

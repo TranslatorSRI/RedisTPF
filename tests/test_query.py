@@ -14,11 +14,11 @@ from src.descender import Descender
 # TODO : make rc, Desc into fixtures
 @pytest.fixture(scope="module")
 def rc():
-    return RedisConnection("localhost", 6379, "nop")
+    return RedisConnection("localhost", 6379, "")
 
 @pytest.fixture(scope="module")
-def descender():
-    return Descender()
+def descender(rc):
+    return Descender(rc)
 
 def test_simple_queries(rc, descender):
     # Given the edge defined in run_basic_tests, query for it by subject and object with exacty the

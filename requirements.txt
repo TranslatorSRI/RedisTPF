@@ -2,5 +2,6 @@ httpx
 redis
 fastapi
 bmt
+jsonpickle
 reasoner_pydantic
 uvicorn

@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import jsonpickle
 from collections import defaultdict
 
 from redis_connector import RedisConnection
@@ -49,7 +50,7 @@ def fixedge(edge):
     return new_edge
 
 
-def load_nodes(nodepath, host, port, password):
+def load_nodes(nodepath, descender, host, port, password):
     # Load jsonl files into Redis
     # The redis database is structured as follows:
     # db0 contains a map from a text node id to an integer node_id.  The int node_id is defined
@@ -61,7 +62,6 @@ def load_nodes(nodepath, host, port, password):
     #  create a dictionary from (original) node_id to category.  We also need to keep a dictionary
     #  in python with the node_id->integer node id mapping.  We will use this to create the edges.
 
-    descender = Descender()
 
     with RedisConnection(host, port, password) as rc:
         pipelines = rc.get_pipelines()
@@ -97,7 +97,7 @@ def load_nodes(nodepath, host, port, password):
     return nodeid_to_categories, nodeid_to_intnodeid
 
 
-def load_edges(edgepath, nodeid_to_categories, nodeid_to_intnodeid, host, port, password):
+def load_edges(edgepath, descender, nodeid_to_categories, nodeid_to_intnodeid, host, port, password):
     # Load an edge jsonl into redis.  Edges are specified for query by a combination of
     #  predicate and qualifiers, denoted pq.   The databases are structured as:
     # db3: pq -> integer_id_for_pq (for saving mem in the other dbs)
@@ -106,12 +106,16 @@ def load_edges(edgepath, nodeid_to_categories, nodeid_to_intnodeid, host, port, 
     #   (type_int_id, -pq_int_id, object_int_id).  The latter is for reverse edges.
     # db5: query_pattern -> list of integer_edge_ids
     # db6: int_node_id -> list of subclass integer_node_ids
+    # db7: several pieces of metadata that are used to reconstruct descender at server startup
 
     with RedisConnection(host, port, password) as rc:
         pipelines = rc.get_pipelines()
 
         last_edge_id = 0
         pq_to_intpq = {}
+
+        s_partial_patterns = set()
+        o_partial_patterns = set()
 
         # read the file
         with open(edgepath) as f:
@@ -141,6 +145,8 @@ def load_edges(edgepath, nodeid_to_categories, nodeid_to_intnodeid, host, port, 
                         for o_cat_int in o_cat_ints:
                             spattern = create_query_pattern(s_int, pq_intid, o_cat_int)
                             opattern = create_query_pattern(s_cat_int, -pq_intid, o_int)
+                            s_partial_patterns.add(f"{pq_intid},{o_cat_int}")
+                            o_partial_patterns.add(f"{s_cat_int},-{pq_intid}")
                             pipelines[5].rpush(spattern, last_edge_id)
                             pipelines[5].rpush(spattern, o_int)
                             pipelines[5].rpush(opattern, last_edge_id)
@@ -148,11 +154,38 @@ def load_edges(edgepath, nodeid_to_categories, nodeid_to_intnodeid, host, port, 
                 if last_edge_id % 10000 == 0:
                     print("Edge", last_edge_id)
                     rc.flush_pipelines()
+        write_metadata(rc, descender, s_partial_patterns, o_partial_patterns)
 
+def write_metadata(rc, descender, s_partial_patterns, o_partial_patterns):
+    """
+    Write metadata to db7 redis to be used at server startup.
+    The metadata will consist of these elements:
+    "pq_to_descendants": a json version of descender.pq_to_descendants
+    "type_to_descendants": a json version of descender.type_to_descendants
+    "s_partial_patterns": a set of partial patterns for subject queries
+    "o_partial_patterns": a set of partial patterns for object queries
+    "predicate_symmetries": a dictionary of {predicate: True/False} denoting whether the predicate is symmetric
+
+    This is for 3 reasons:
+    1. It keeps us from having to recalculate the descendants at server startup (a slow process)
+    2. It means we don't need to load BMT at server startup, so that we can save time and also avoid changes there for versions
+    3. The partial patterns optimize query time for very general queries like (related to named thing).   if you just
+    follow the biolink model and look for every predicate, qualifier, type , then there are about 150k. But in the
+    data, there are more like 1k, and this is the main slow part of the related_to query.  By knowing what the
+    subpatterns are, we can filter and run much faster.
+    """
+
+    db = rc.r[7]
+    db.set("pq_to_descendants", jsonpickle.encode(descender.pq_to_descendants))
+    db.set("type_to_descendants", jsonpickle.encode(descender.type_to_descendants))
+    db.set("s_partial_patterns", jsonpickle.encode(s_partial_patterns))
+    db.set("o_partial_patterns", jsonpickle.encode(o_partial_patterns))
+    db.set("predicate_symmetries", jsonpickle.encode(descender.predicate_is_symmetric))
 
 def load(nodepath, edgepath, host, port, password):
-    nodeid_to_categories, nodeid_to_intnodeid = load_nodes(nodepath, host, port, password)
-    load_edges(edgepath, nodeid_to_categories, nodeid_to_intnodeid, host, port, password)
+    descender = Descender()
+    nodeid_to_categories, nodeid_to_intnodeid = load_nodes(nodepath, descender, host, port, password)
+    load_edges(edgepath, descender, nodeid_to_categories, nodeid_to_intnodeid, host, port, password)
 
 
 if __name__ == "__main__":

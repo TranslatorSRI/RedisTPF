@@ -24,7 +24,6 @@ APP.add_middleware(
     allow_headers=["*"],
 )
 
-descender = Descender()
 REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
 REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD")
@@ -34,9 +33,14 @@ rc = RedisConnection(
     REDIS_PASSWORD 
     )
 
+descender = Descender(rc)
 
 @APP.post("/query", tags=["Query"], response_model=PDResponse, response_model_exclude_none=True, status_code=200)
 async def query_handler(request: PDResponse):
+    #import cProfile
+    #pr = cProfile.Profile()
+    #pr.enable()
+
     """ Query operations. """
     dict_request = request.dict(exclude_unset=True, exclude_none=True)
     # Check the query graph for basic validity
@@ -129,6 +133,9 @@ async def query_handler(request: PDResponse):
                                                               object_query_node:[{"id":edge["subject"]}]})
         response.message.results.append(result)
 
+    # after your program ends
+    #pr.disable()
+    #pr.print_stats(sort="cumtime")
     return response
 
 import uvicorn

@@ -49,26 +49,36 @@ def gquery(input_curies, pq, output_type, input_is_subject, descender, rc, filte
     #  looked up in redis at start time.
 
     # Get the int_id for the pq:
-    pqs = descender.get_pq_descendants(pq)
-    pq_int_ids = rc.pipeline_gets(3, pqs, True).values()
+    pq_int_ids = descender.get_pq_descendant_int_ids(pq)
 
     # Get the int_id for the output type and its descendants
-    output_types = descender.get_type_descendants(output_type)
-    type_int_ids = rc.pipeline_gets(2, output_types, True).values()
+    type_int_ids = get_type_int_ids(descender, output_type, rc)
 
     # create_query_pattern
+    iid_list = []
+    query_patterns = []
     if input_is_subject:
-        query_patterns = [create_query_pattern(iid, pq_int_id, type_int_id) for iid in input_int_ids for type_int_id in type_int_ids for pq_int_id in pq_int_ids]
+        for type_int_id in type_int_ids:
+            for pq_int_id in pq_int_ids:
+                #Filter to the ones that are actually in the db
+                if f"{pq_int_id},{type_int_id}" in descender.s_partial_patterns:
+                    for iid in input_int_ids:
+                        query_patterns.append(create_query_pattern(iid, pq_int_id, type_int_id))
+                        iid_list.append(iid)
     else:
-        query_patterns = [create_query_pattern(type_int_id, -pq_int_id, iid) for iid in input_int_ids for type_int_id in type_int_ids for pq_int_id in pq_int_ids]
+        for type_int_id in type_int_ids:
+            for pq_int_id in pq_int_ids:
+                #Filter to the ones that are actually in the db
+                if f"{type_int_id},-{pq_int_id}" in descender.o_partial_patterns:
+                    for iid in input_int_ids:
+                        query_patterns.append(create_query_pattern(type_int_id, -pq_int_id, iid) )
+                        iid_list.append(iid)
     # We need to make the iid_list in the same way as query_patterns so that we can
     # extract the iids that actually gave results to return them
-    iid_list = [iid for iid in input_int_ids for type_int_id in type_int_ids for pq_int_id in pq_int_ids]
+    # iid_list = [iid for iid in input_int_ids for type_int_id in type_int_ids for pq_int_id in pq_int_ids]
 
     # Now, get the list of edge ids that match the query patterns
-    for qp in query_patterns:
-        pipelines[5].lrange(qp, 0, -1)
-    results = pipelines[5].execute()
+    results = get_results_for_query_patterns(pipelines, query_patterns)
     # Keep the input_iids that returned results
     # This is kind of messy b/c you have to know if the iid is in the subject or object position of the query pattern
     input_int_ids = list(set([iid_list[i] for i in range(len(iid_list)) if len(results[i]) > 0]))
@@ -89,17 +99,28 @@ def gquery(input_curies, pq, output_type, input_is_subject, descender, rc, filte
         edge_ids = filtered_edge_ids
         output_node_ids = filtered_output_node_ids
 
-    # Collect the node strings:
-    for iid in set(input_int_ids):
-        pipelines[1].get(iid)
-    input_node_strings = pipelines[1].execute()
-    for oid in set(output_node_ids):
-        pipelines[1].get(oid)
-    output_node_strings = pipelines[1].execute()
+    return get_strings(input_int_ids, output_node_ids, edge_ids,rc)
 
-    # Collect the edge strings:
-    for eid in edge_ids:
-        pipelines[4].get(eid)
-    edge_strings = pipelines[4].execute()
+
+def get_results_for_query_patterns(pipelines, query_patterns):
+    for qp in query_patterns:
+        pipelines[5].lrange(qp, 0, -1)
+    results = pipelines[5].execute()
+    return results
+
+
+def get_type_int_ids(descender, output_type, rc):
+    output_types = descender.get_type_descendants(output_type)
+    type_int_ids = rc.pipeline_gets(2, output_types, True).values()
+    return type_int_ids
+
+
+
+
+def get_strings(input_int_ids, output_node_ids, edge_ids,rc):
+    input_node_strings = rc.r[1].mget(set(input_int_ids))
+    output_node_strings = rc.r[1].mget(set(output_node_ids))
+
+    edge_strings = rc.r[4].mget(edge_ids)
 
     return input_node_strings, output_node_strings, edge_strings
