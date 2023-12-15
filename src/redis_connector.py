@@ -34,7 +34,6 @@ class RedisConnection:
         values = self.p[pipeline_id].execute()
         if convert_to_int:
             s = {k:int(v) for k,v in zip(keys, values) if v is not None}
-            print("pipeline_gets", pipeline_id, len(keys), len(s))
             return s
         else:
             return {k:v for k,v in zip(keys, values) if v is not None}
