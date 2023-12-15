@@ -1,24 +1,49 @@
-# Convenience class for loading biolink and coming up with all the descendents of pq and
+# Convenience class for loading biolink and coming up with all the descendants of pq and
 # types.
 
 from bmt import Toolkit
-from src.keymaster import create_pq
+import jsonpickle
 from collections import defaultdict
 
+from src.keymaster import create_pq
+
 class Descender:
-    def __init__(self):
-        self.t = Toolkit()
-        self.type_to_descendants = self.create_type_to_descendants()
-        self.pq_to_descendants = self.create_pq_to_descendants()
-        self.deeptypescache = {}
+    def __init__(self,rc = None):
+        """Descender can be loaded from redis (r) or if no redis is provided, it will load from bmt.
+        When we load from redis, we also pull in the s and o partial patterns which are used to filter at q time."""
+        if rc is not None:
+            db = rc.r[7]
+            self.pq_to_descendants = jsonpickle.decode(db.get("pq_to_descendants"))
+            self.type_to_descendants = jsonpickle.decode(db.get("type_to_descendants"))
+            self.predicate_is_symmetric = jsonpickle.decode(db.get("predicate_symmetries"))
+            self.s_partial_patterns = jsonpickle.decode(db.get("s_partial_patterns"))
+            self.o_partial_patterns = jsonpickle.decode(db.get("o_partial_patterns"))
+            self.pq_to_descendant_int_ids = self.create_pq_to_descendant_int_ids(rc)
+        else:
+            self.t = Toolkit()
+            self.type_to_descendants = self.create_type_to_descendants()
+            self.pq_to_descendants = self.create_pq_to_descendants()
+            self.predicate_is_symmetric = self.create_is_symmetric()
+            self.deeptypescache = {}
     def is_symmetric(self, predicate):
+        return self.predicate_is_symmetric[predicate]
+    def create_is_symmetric(self):
+        # Create a dictionary from predicate to whether it is symmetric
         # The symmetric nature of an edge is completely determined by the predicate.
         # I don't think it's possible for a symmetric predicate to be made asymmetric by the
         # addition of qualifiers.
-        p = self.t.get_element(predicate)
-        if p.symmetric is None:
-            return False
-        return p.symmetric
+        p_is_symmetric = {}
+        for p in self.t.get_descendants('biolink:related_to',formatted=True):
+            try:
+                p_element = self.t.get_element(p)
+                if p_element.symmetric is None:
+                    p_is_symmetric[p] = False
+                else:
+                    p_is_symmetric[p] = p_element.symmetric
+            except:
+                print("Error 2 with predicte: " + p)
+                pass
+        return p_is_symmetric
     def create_type_to_descendants(self):
         # Create a dictionary from type to all of its descendants
         type_to_descendants = {}
@@ -63,11 +88,11 @@ class Descender:
             e = {"predicate": predicate}
             original_pk = create_pq(e)
             add_all_decs(e, predicate_directions, predicate_aspects, decs)
-            # add_all_decs isn't fully redundant, need to make it so by adding grand descendents etc
+            # add_all_decs isn't fully redundant, need to make it so by adding grand descendants etc
             decs = redundantize_decs(decs, original_pk)
             for k,v in decs.items():
                 pq_to_descendants[k] = v
-            #Connect the new descendents to the ancestors of the original pq
+            #Connect the new descendants to the ancestors of the original pq
             for k,v in pq_to_descendants.items():
                 if original_pk in v:
                     pq_to_descendants[k].update(decs[original_pk])
@@ -79,6 +104,27 @@ class Descender:
             return self.pq_to_descendants[pq]
         except:
             return [pq]
+    def create_pq_to_descendant_int_ids(self,rc):
+        # Create a dictionary from pq to all of its descendant integer ids
+        # First, pull the integer id for every pq
+        pql = list(self.pq_to_descendants.keys())
+        pq_iids = rc.pipeline_gets(3, pql, True).values()
+        pq_int_ids = {pq:iid for pq,iid in zip(pql, pq_iids)}
+        # now convert pq_to_descendants into int id values
+        pq_to_descendant_int_ids = {}
+        for pq in self.pq_to_descendants:
+            descendants = self.pq_to_descendants[pq]
+            pq_to_descendant_int_ids[pq] = set()
+            for desc in descendants:
+                # Not every possible descendant is in the database, and the point here is to filter it down to the ones that are.
+                try:
+                    pq_to_descendant_int_ids[pq].add(pq_int_ids[desc])
+                except KeyError:
+                    # This is totally expected
+                    pass
+        return pq_to_descendant_int_ids
+    def get_pq_descendant_int_ids(self, pq):
+        return self.pq_to_descendant_int_ids[pq]
     def get_deepest_types(self, typelist):
         """Given a list of types, examine self.type_to_descendants and return a list of the types
         from typelist that do not have a descendant in the list"""
@@ -145,14 +191,14 @@ def get_decs(edge, directions, aspects):
     return new_edges
 
 def redundantize_decs(decs, root, processed=None):
-    # given a dictionary from a member to a set of immediate descendents d, and a root node, return a dictionary
-    # from the member to a set of all descendents. Note that a member is a descendent of itself.
+    # given a dictionary from a member to a set of immediate descendants d, and a root node, return a dictionary
+    # from the member to a set of all descendants. Note that a member is a descendent of itself.
     # For instance, if decs is {a: {a,b,c}, b: {b,d}, c: {c,e}, d:{d}, e:{e}}, then the return value will be
     # {a: {a,b,c,d,e}, b: {b,d}, c: {c,e}, d:{d}, e:{e}}.
     # This is a recursive function.  It returns a dictionary.
     # The base case is when the root is not in the dictionary.  In this case, we return the dictionary.
-    # The recursive case is when the root is in the dictionary.  In this case, we add the descendents of the
-    # root to the root's descendents, and then call the function on the root's descendents.
+    # The recursive case is when the root is in the dictionary.  In this case, we add the descendants of the
+    # root to the root's descendants, and then call the function on the root's descendants.
     # Note that this function is not efficient.  It is O(n^2) in the number of edges.  However, we don't expect
     # the number of edges to be very large, so this should be fine.
     if processed is None:
