@@ -6,8 +6,13 @@ from src.redis_connector import RedisConnection
 from src.descender import Descender
 from src.keymaster import create_trapi_pq
 from src.query_redis import squery, oquery, bquery
+from fastapi import Request
+from fastapi.responses import ORJSONResponse
+from pyinstrument import Profiler
+from pyinstrument.renderers.html import HTMLRenderer
+from pyinstrument.renderers.speedscope import SpeedscopeRenderer
 
-import json
+import orjson
 
 RTPF_VERSION = '0.0.1'
 
@@ -24,6 +29,35 @@ APP.add_middleware(
     allow_headers=["*"],
 )
 
+def register_profiling_middleware(app):
+    #if app.settings.PROFILING_ENABLED is True:
+
+        @app.middleware("http")
+        async def profile_request(request: Request, call_next):
+            """Profile the current request
+
+            Taken from https://pyinstrument.readthedocs.io/en/latest/guide.html#profile-a-web-request-in-fastapi
+            with slight improvements.
+
+            """
+            profile_type_to_ext = {"html": "html", "speedscope": "speedscope.json"}
+            profile_type_to_renderer = {
+                "html": HTMLRenderer,
+                "speedscope": SpeedscopeRenderer,
+            }
+            profile_type = request.query_params.get("profile_format", "speedscope")
+            with Profiler(interval=0.001, async_mode="enabled") as profiler:
+                response = await call_next(request)
+            extension = profile_type_to_ext[profile_type]
+            renderer = profile_type_to_renderer[profile_type]()
+            with open(f"profile.{extension}", "w") as out:
+                out.write(profiler.output(renderer=renderer))
+            return response
+
+# Uncomment the following line to add profiling middleware
+# it'll write out a profile.speedscope.json file in the current directory.
+# register_profiling_middleware(APP)
+
 REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
 REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD")
@@ -35,7 +69,7 @@ rc = RedisConnection(
 
 descender = Descender(rc)
 
-@APP.post("/query", tags=["Query"], response_model=PDResponse, response_model_exclude_none=True, status_code=200)
+@APP.post("/query", tags=["Query"], status_code=200)
 async def query_handler(request: PDResponse):
     #import cProfile
     #pr = cProfile.Profile()
@@ -95,16 +129,16 @@ async def query_handler(request: PDResponse):
         # edges.extend(edges_r)
 
     # Create edge identifiers
-    edge_id_to_edge = { f"knowledge_edge_{i}":json.loads(edge) for i, edge in enumerate(edges)}
+    edge_id_to_edge = { f"knowledge_edge_{i}":orjson.loads(edge) for i, edge in enumerate(edges)}
     # These edges are the ones that are going the same direction as the query
     forward_edge_ids = set(edge_id_to_edge.keys())
     # Now add the reverse edges. Make sure not to overwrite ids
-    edge_id_to_edge.update({ f"knowledge_edge_{i+len(edges)}":json.loads(edge) for i, edge in enumerate(edges_r)})
+    edge_id_to_edge.update({ f"knowledge_edge_{i+len(edges)}":orjson.loads(edge) for i, edge in enumerate(edges_r)})
 
     # Create the response
-    dict_request["message"]["knowledge_graph"] ={"nodes":{}, "edges":{}}
-    dict_request["message"]["results"] = []
-    response = PDResponse(message=dict_request['message'])
+    response = { "message" : { "query_graph": query_graph,
+                               "knowledge_graph": {"nodes":{}, "edges":{}},
+                               "results": [] } }
 
     # KG Nodes
     for nodelist in (input_nodes, output_nodes):
@@ -112,31 +146,35 @@ async def query_handler(request: PDResponse):
             # The node id is on the node in the redis, but it's invalid TRAPI to have it there, so we remove it
             # now.  We could have removed it at load time, but then it's hard to recover because of the way that
             # we are indexing.
-            jnode = json.loads(node)
+            jnode = orjson.loads(node)
             nid = jnode["id"]
             del jnode["id"]
-            response.message.knowledge_graph.nodes[nid] = jnode
+            response["message"]["knowledge_graph"]["nodes"][nid] = jnode
 
     # KG Edges
-    response.message.knowledge_graph.edges = edge_id_to_edge
+    response["message"]["knowledge_graph"]["edges"] = edge_id_to_edge
 
     # Results
     # Each edge is going to generate a result
-    response.message.results = []
     for edge_id, edge in edge_id_to_edge.items():
-        analysis = PDAnalysis(resource_id="infores:test", edge_bindings={query_edge: [{"id":edge_id}]})
+        analysis = {"resource_id":"infores:test",
+                    "edge_bindings":{query_edge: [{"id":edge_id}]}}
         if edge_id in forward_edge_ids:
-            result = PDResult(analyses=[analysis], node_bindings={subject_query_node:[{"id":edge["subject"]}],
-                                                              object_query_node:[{"id":edge["object"]}]})
+            result = {"analyses":[analysis],
+                      "node_bindings":{subject_query_node:[{"id":edge["subject"]}],
+                                       object_query_node:[{"id":edge["object"]}]}}
         else:
-            result = PDResult(analyses=[analysis], node_bindings={subject_query_node:[{"id":edge["object"]}],
-                                                              object_query_node:[{"id":edge["subject"]}]})
-        response.message.results.append(result)
+            result = {"analyses":[analysis],
+                      "node_bindings":{subject_query_node:[{"id":edge["object"]}],
+                                       object_query_node:[{"id":edge["subject"]}]}}
+        response["message"]["results"].append(result)
 
     # after your program ends
     #pr.disable()
     #pr.print_stats(sort="cumtime")
-    return response
+    return ORJSONResponse(status_code=200,
+                        content=response,
+                        media_type="application/json")
 
 import uvicorn
 if __name__ == "__main__":
