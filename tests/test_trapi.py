@@ -51,6 +51,52 @@ def test_profile_asthma():
     response = client.post("/query", json= query_graph).json()
     print("How many results?",len(response["message"]["results"]))
 
+def test_affects():
+    m = {
+      "message": {
+        "query_graph": {
+          "nodes": {
+            "subnode": {
+              "ids": [
+                "PUBCHEM.COMPOUND:70701426"
+              ]
+            },
+            "objnode": {
+              "categories": [
+                "biolink:Gene"
+              ]
+            }
+          },
+          "edges": {
+            "the_edge": {
+              "subject": "subnode",
+              "object": "objnode",
+              "predicates": [
+                "biolink:affects"
+              ],
+              "qualifier_constraints": [
+                {
+                  "qualifier_set": [
+                    {
+                      "qualifier_type_id": "biolink:object_aspect_qualifier",
+                      "qualifier_value": "activity"
+                    },
+                    {
+                      "qualifier_type_id": "biolink:object_direction_qualifier",
+                      "qualifier_value": "decreased"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+    response = client.post("/query", json=m)
+    print("How many results?",len(response.json()["message"]["results"]))
+    assert response.status_code == 200
+
 def test_500():
     # This is giving a 500, seems like it's getting into the double ended query by mistake.
     m = {
