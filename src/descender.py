@@ -108,8 +108,7 @@ class Descender:
         # Create a dictionary from pq to all of its descendant integer ids
         # First, pull the integer id for every pq
         pql = list(self.pq_to_descendants.keys())
-        pq_iids = rc.pipeline_gets(3, pql, True).values()
-        pq_int_ids = {pq:iid for pq,iid in zip(pql, pq_iids)}
+        pq_int_ids = rc.pipeline_gets(3, pql, True)
         # now convert pq_to_descendants into int id values
         pq_to_descendant_int_ids = {}
         for pq in self.pq_to_descendants:
