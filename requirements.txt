@@ -3,5 +3,7 @@ redis
 fastapi
 bmt
 jsonpickle
+pyinstrument
+orjson
 reasoner_pydantic
 uvicorn
