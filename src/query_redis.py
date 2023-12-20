@@ -1,28 +1,28 @@
 from src.keymaster import create_query_pattern
 
-def bquery(subjects, pq, objects, descender, rc):
+async def bquery(subjects, pq, objects, descender, rc):
     # Given a list of subject curies, a predicate/qualifier string, and a list of object curies,
     # return a list of TRAPI nodes and a list of trapi edges. If symmetric is true, then the
     # query is (subject, pq, object) or (object, pq, subject).  Otherwise, it is (subject, pq, object).
     # The strategy is to first figure out which of the subject or object curies is the smaller set.
     # TODO: can we constrain the object type from the TRAPI query? Or by looking at the objects?
     if len(subjects) < len(objects):
-        return oquery(subjects, pq, "biolink:NamedThing", descender, rc, objects)
+        return await oquery(subjects, pq, "biolink:NamedThing", descender, rc, objects)
     else:
         object_nodes, subject_nodes, edges =\
-            squery(objects, pq, "biolink:NamedThing", descender, rc, subjects)
+            await squery(objects, pq, "biolink:NamedThing", descender, rc, subjects)
         return subject_nodes, object_nodes, edges
 
-def oquery(subjects, pq, object_type, descender, rc, objects = None):
+async def oquery(subjects, pq, object_type, descender, rc, objects = None):
     # Given a list of subject curies, a predicate/qualifier string, and an object type, return a list of objects
-    return gquery(subjects, pq, object_type, True, descender, rc, objects)
+    return await gquery(subjects, pq, object_type, True, descender, rc, objects)
 
 
-def squery(objects, pq, subject_type, descender, rc, subjects = None):
-    return gquery(objects, pq, subject_type, False, descender, rc, subjects)
+async def squery(objects, pq, subject_type, descender, rc, subjects = None):
+    return await gquery(objects, pq, subject_type, False, descender, rc, subjects)
 
 
-def gquery(input_curies, pq, output_type, input_is_subject, descender, rc, filter_curies = None):
+async def gquery(input_curies, pq, output_type, input_is_subject, descender, rc, filter_curies = None):
     # Given a list of input curies, a predicate/qualifier string, and an output type, return a list of TRAPI
     # nodes and a list of trapi edges.
     # Optionally filter the output nodes by a list of curies (and their subclasses).
@@ -41,18 +41,18 @@ def gquery(input_curies, pq, output_type, input_is_subject, descender, rc, filte
 
     pipelines = rc.get_pipelines()
 
-    input_int_ids = rc.get_int_node_ids(input_curies)
+    input_int_ids = await rc.get_int_node_ids(input_curies)
     if filter_curies is not None:
-        filter_int_ids = rc.get_int_node_ids(filter_curies)
+        filter_int_ids = await rc.get_int_node_ids(filter_curies)
 
     # TODO: the int id for the pq and types should probably be cached somewhere, maybe in the Descender and
     #  looked up in redis at start time.
 
     # Get the int_id for the pq:
-    pq_int_ids = descender.get_pq_descendant_int_ids(pq)
+    pq_int_ids = await descender.get_pq_descendant_int_ids(pq)
 
     # Get the int_id for the output type and its descendants
-    type_int_ids = get_type_int_ids(descender, output_type, rc)
+    type_int_ids = await get_type_int_ids(descender, output_type, rc)
 
     # create_query_pattern
     iid_list = []
@@ -78,7 +78,7 @@ def gquery(input_curies, pq, output_type, input_is_subject, descender, rc, filte
     # iid_list = [iid for iid in input_int_ids for type_int_id in type_int_ids for pq_int_id in pq_int_ids]
 
     # Now, get the list of edge ids that match the query patterns
-    results = get_results_for_query_patterns(pipelines, query_patterns)
+    results = await get_results_for_query_patterns(pipelines, query_patterns)
     # Keep the input_iids that returned results
     # This is kind of messy b/c you have to know if the iid is in the subject or object position of the query pattern
     input_int_ids = list(set([iid_list[i] for i in range(len(iid_list)) if len(results[i]) > 0]))
@@ -99,25 +99,26 @@ def gquery(input_curies, pq, output_type, input_is_subject, descender, rc, filte
         edge_ids = filtered_edge_ids
         output_node_ids = filtered_output_node_ids
 
-    return get_strings(input_int_ids, output_node_ids, edge_ids,rc)
+    return await get_strings(input_int_ids, output_node_ids, edge_ids,rc)
 
 
-def get_results_for_query_patterns(pipelines, query_patterns):
+async def get_results_for_query_patterns(pipelines, query_patterns):
     for qp in query_patterns:
         pipelines[5].lrange(qp, 0, -1)
     results = pipelines[5].execute()
     return results
 
 
-def get_type_int_ids(descender, output_type, rc):
+async def get_type_int_ids(descender, output_type, rc):
     output_types = descender.get_type_descendants(output_type)
-    type_int_ids = rc.pipeline_gets(2, output_types, True).values()
+    res = await rc.pipeline_gets(2, output_types, True)
+    type_int_ids = res.values()
     return type_int_ids
 
 
 
 
-def get_strings(input_int_ids, output_node_ids, edge_ids,rc):
+async def get_strings(input_int_ids, output_node_ids, edge_ids,rc):
     input_node_strings = rc.r[1].mget(set(input_int_ids))
     output_node_strings = rc.r[1].mget(set(output_node_ids))
 

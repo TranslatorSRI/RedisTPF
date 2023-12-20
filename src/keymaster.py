@@ -1,4 +1,4 @@
-import orjson
+import json
 
 def create_pq(record):
     # Given an edge json record, create a string that represents the predicate and qualifiers
@@ -13,7 +13,8 @@ def create_pq(record):
         for propname, propval in record.items():
             if propname.endswith("_qualifier"):
                 pq[propname] = propval
-    return orjson.dumps(pq, sort_keys=True)
+    # THis has to be json instead of orjson because we need to sort the keys
+    return json.dumps(pq, sort_keys=True)
 
 def create_trapi_pq(trapi_edge):
     # Given a trapi edge, create a string that represents the predicate and qualifiers

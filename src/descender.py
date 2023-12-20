@@ -10,7 +10,8 @@ from src.keymaster import create_pq
 class Descender:
     def __init__(self,rc = None):
         """Descender can be loaded from redis (r) or if no redis is provided, it will load from bmt.
-        When we load from redis, we also pull in the s and o partial patterns which are used to filter at q time."""
+        When we load from redis, we also pull in the s and o partial patterns which are used to filter at q time.
+        If you are creating descender with an rc, you also need to call setup on it asynchronously."""
         if rc is not None:
             db = rc.r[7]
             self.pq_to_descendants = jsonpickle.decode(db.get("pq_to_descendants"))
@@ -18,13 +19,16 @@ class Descender:
             self.predicate_is_symmetric = jsonpickle.decode(db.get("predicate_symmetries"))
             self.s_partial_patterns = jsonpickle.decode(db.get("s_partial_patterns"))
             self.o_partial_patterns = jsonpickle.decode(db.get("o_partial_patterns"))
-            self.pq_to_descendant_int_ids = self.create_pq_to_descendant_int_ids(rc)
+            self.pq_to_descendant_int_ids = None
+            #Need to hang onto this b/c we are going to lazy load pq_to_descendant_int_ids.  Doing it here is a pain from an async perspective
+            self.rc = rc
         else:
             self.t = Toolkit()
             self.type_to_descendants = self.create_type_to_descendants()
             self.pq_to_descendants = self.create_pq_to_descendants()
             self.predicate_is_symmetric = self.create_is_symmetric()
             self.deeptypescache = {}
+
     def is_symmetric(self, predicate):
         return self.predicate_is_symmetric[predicate]
     def create_is_symmetric(self):
@@ -104,11 +108,11 @@ class Descender:
             return self.pq_to_descendants[pq]
         except:
             return [pq]
-    def create_pq_to_descendant_int_ids(self,rc):
+    async def create_pq_to_descendant_int_ids(self,rc):
         # Create a dictionary from pq to all of its descendant integer ids
         # First, pull the integer id for every pq
         pql = list(self.pq_to_descendants.keys())
-        pq_int_ids = rc.pipeline_gets(3, pql, True)
+        pq_int_ids = await rc.pipeline_gets(3, pql, True)
         # now convert pq_to_descendants into int id values
         pq_to_descendant_int_ids = {}
         for pq in self.pq_to_descendants:
@@ -122,7 +126,9 @@ class Descender:
                     # This is totally expected
                     pass
         return pq_to_descendant_int_ids
-    def get_pq_descendant_int_ids(self, pq):
+    async def get_pq_descendant_int_ids(self, pq):
+        if self.pq_to_descendant_int_ids is None:
+            self.pq_to_descendant_int_ids = await self.create_pq_to_descendant_int_ids(self.rc)
         return self.pq_to_descendant_int_ids[pq]
     def get_deepest_types(self, typelist):
         """Given a list of types, examine self.type_to_descendants and return a list of the types
