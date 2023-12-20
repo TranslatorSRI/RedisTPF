@@ -1,17 +1,12 @@
-import redis
+import redis.asyncio as redis
+
 class RedisConnection:
     # RedisConnection is a class that holds a connection to a redis database
     # it is a context manager and can be used in a with statement
     def __init__(self,host,port,password):
         self.r = []
-        self.r.append(redis.StrictRedis(host=host, port=port, db=0, password=password))
-        self.r.append(redis.StrictRedis(host=host, port=port, db=1, password=password))
-        self.r.append(redis.StrictRedis(host=host, port=port, db=2, password=password))
-        self.r.append(redis.StrictRedis(host=host, port=port, db=3, password=password))
-        self.r.append(redis.StrictRedis(host=host, port=port, db=4, password=password))
-        self.r.append(redis.StrictRedis(host=host, port=port, db=5, password=password))
-        self.r.append(redis.StrictRedis(host=host, port=port, db=6, password=password))
-        self.r.append(redis.StrictRedis(host=host, port=port, db=7, password=password))
+        for i in range(8):
+            self.r.append(redis.StrictRedis(host=host, port=port, db=i, password=password, socket_connect_timeout=600))
         self.p = [ rc.pipeline() for rc in self.r ]
     def __enter__(self):
         return self
@@ -19,7 +14,7 @@ class RedisConnection:
         for p in self.p:
             p.execute()
         for rc in self.r:
-            rc.close()
+            rc.aclose()
     def get_pipelines(self):
         return self.p
     def flush_pipelines(self):
@@ -32,7 +27,7 @@ class RedisConnection:
         for key in keys:
             pipe = self.p[pipeline_id]
             pipe.get(key)
-        values = self.p[pipeline_id].execute()
+        values = await self.p[pipeline_id].execute()
         if convert_to_int:
             s = {k:int(v) for k,v in zip(keys, values) if v is not None}
             return s
@@ -47,7 +42,7 @@ class RedisConnection:
         # Now, extend the input_int_ids with the subclass ids
         for iid in input_int_ids:
             self.p[6].lrange(iid, 0, -1)
-        results = self.p[6].execute()
+        results = await self.p[6].execute()
         subclass_int_ids = [int(item) for sublist in results for item in sublist]
         input_int_ids.extend(subclass_int_ids)
         return input_int_ids
