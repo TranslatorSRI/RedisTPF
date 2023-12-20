@@ -26,11 +26,12 @@ class RedisConnection:
         for p in self.p:
             p.execute()
 
-    def pipeline_gets(self, pipeline_id, keys, convert_to_int=True):
+    async def pipeline_gets(self, pipeline_id, keys, convert_to_int=True):
         """Pipeline get queries for a given pipeline id.  Return as a dictionary, removing keys that don't
         have a value."""
         for key in keys:
-            self.p[pipeline_id].get(key)
+            pipe = self.p[pipeline_id]
+            pipe.get(key)
         values = self.p[pipeline_id].execute()
         if convert_to_int:
             s = {k:int(v) for k,v in zip(keys, values) if v is not None}
@@ -38,10 +39,11 @@ class RedisConnection:
         else:
             return {k:v for k,v in zip(keys, values) if v is not None}
 
-    def get_int_node_ids(self, input_curies):
+    async def get_int_node_ids(self, input_curies):
         # Given a list of curies, return a list of integer node ids, including subclasses of the curies
         # First, get the integer ids for the input curies
-        input_int_ids = list(self.pipeline_gets(0, input_curies, True).values())
+        pg = await self.pipeline_gets(0, input_curies, True)
+        input_int_ids = list(pg.values())
         # Now, extend the input_int_ids with the subclass ids
         for iid in input_int_ids:
             self.p[6].lrange(iid, 0, -1)

@@ -104,20 +104,20 @@ async def query_handler(request: PDResponse):
     if "ids" in subject_node and "ids" in object_node:
         subject_curies = subject_node["ids"]
         object_curies = object_node["ids"]
-        input_nodes, output_nodes, edges = bquery(subject_curies, pq, object_curies, descender, rc)
+        input_nodes, output_nodes, edges = await bquery(subject_curies, pq, object_curies, descender, rc)
         # TODO: this is an opportunity for speedup because there is some duplicated work here.
         if descender.is_symmetric(q_pred):
-            output_nodes_r, input_nodes_r, edges_r = bquery(object_curies, pq, subject_curies, descender, rc)
+            output_nodes_r, input_nodes_r, edges_r = await bquery(object_curies, pq, subject_curies, descender, rc)
     elif "ids" in subject_node:
         subject_curies = subject_node["ids"]
-        input_nodes, output_nodes, edges = oquery(subject_curies, pq, object_node["categories"][0], descender, rc)
+        input_nodes, output_nodes, edges = await oquery(subject_curies, pq, object_node["categories"][0], descender, rc)
         if descender.is_symmetric(q_pred):
-            output_nodes_r, input_nodes_r, edges_r = squery(subject_curies, pq, object_node["categories"][0], descender, rc)
+            output_nodes_r, input_nodes_r, edges_r = await squery(subject_curies, pq, object_node["categories"][0], descender, rc)
     else:
         object_curies = object_node["ids"]
-        input_nodes, output_nodes, edges = squery(object_curies, pq, subject_node["categories"][0], descender, rc)
+        input_nodes, output_nodes, edges = await squery(object_curies, pq, subject_node["categories"][0], descender, rc)
         if descender.is_symmetric(q_pred):
-            output_nodes_r, input_nodes_r, edges_r = oquery(object_curies, pq, subject_node["categories"][0], descender, rc)
+            output_nodes_r, input_nodes_r, edges_r = await oquery(object_curies, pq, subject_node["categories"][0], descender, rc)
 
     # Merge the results, but we need to worry about duplicating nodes.  The edges are by construction
     # pointing in the opposite directions, so there should be no overlap there.
