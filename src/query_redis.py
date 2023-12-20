@@ -61,7 +61,7 @@ async def gquery(input_curies, pq, output_type, input_is_subject, descender, rc,
         for type_int_id in type_int_ids:
             for pq_int_id in pq_int_ids:
                 #Filter to the ones that are actually in the db
-                if f"{pq_int_id},{type_int_id}" in descender.s_partial_patterns:
+                if f"{pq_int_id},{type_int_id}" in await descender.get_s_partial_patterns():
                     for iid in input_int_ids:
                         query_patterns.append(create_query_pattern(iid, pq_int_id, type_int_id))
                         iid_list.append(iid)
@@ -69,7 +69,7 @@ async def gquery(input_curies, pq, output_type, input_is_subject, descender, rc,
         for type_int_id in type_int_ids:
             for pq_int_id in pq_int_ids:
                 #Filter to the ones that are actually in the db
-                if f"{type_int_id},-{pq_int_id}" in descender.o_partial_patterns:
+                if f"{type_int_id},-{pq_int_id}" in await descender.get_o_partial_patterns():
                     for iid in input_int_ids:
                         query_patterns.append(create_query_pattern(type_int_id, -pq_int_id, iid) )
                         iid_list.append(iid)
@@ -105,12 +105,12 @@ async def gquery(input_curies, pq, output_type, input_is_subject, descender, rc,
 async def get_results_for_query_patterns(pipelines, query_patterns):
     for qp in query_patterns:
         pipelines[5].lrange(qp, 0, -1)
-    results = pipelines[5].execute()
+    results = await pipelines[5].execute()
     return results
 
 
 async def get_type_int_ids(descender, output_type, rc):
-    output_types = descender.get_type_descendants(output_type)
+    output_types = await descender.get_type_descendants(output_type)
     res = await rc.pipeline_gets(2, output_types, True)
     type_int_ids = res.values()
     return type_int_ids
@@ -119,9 +119,9 @@ async def get_type_int_ids(descender, output_type, rc):
 
 
 async def get_strings(input_int_ids, output_node_ids, edge_ids,rc):
-    input_node_strings = rc.r[1].mget(set(input_int_ids))
-    output_node_strings = rc.r[1].mget(set(output_node_ids))
+    input_node_strings = await rc.r[1].mget(set(input_int_ids))
+    output_node_strings = await rc.r[1].mget(set(output_node_ids))
 
-    edge_strings = rc.r[4].mget(edge_ids)
+    edge_strings = await rc.r[4].mget(edge_ids)
 
     return input_node_strings, output_node_strings, edge_strings
